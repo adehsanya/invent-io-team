@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {formatMinor} from '../public/money.js';
 import {brand, ico, link, field, notice, empty, kv, status, PasswordField} from './ui.jsx';
+import {stockLabel} from './stockAdapter.js';
 import {CheckEmail, VerifyPending, VerifyResult} from './authScreens.jsx';
 
 export function createViews({state,api,push,can,person,selectedItems,route,verify}) {
@@ -37,7 +38,7 @@ export function createViews({state,api,push,can,person,selectedItems,route,verif
     return rows.map(p=><a key={p.id} className="list-link" href={`#/catalog-edit?id=${encodeURIComponent(p.id)}`}><span className="product-placeholder">{ico('package')}</span><div className="grow"><strong>{p.name}</strong><p>{formatMinor(p.price)}{p.cost!=null?' · cost '+formatMinor(p.cost):''}{p.sku?' · '+p.sku:''}</p></div>{ico('caret')}</a>);
   }
   function catalogTable(rows) {
-    return <div className="pay-table prod-table" role="table"><div className="pay-row pay-head" role="row"><span>Product</span><span className="num">Selling price</span><span className="num">Cost price</span><span /></div>{rows.map(p=><a key={p.id} className="pay-row prod-row" role="row" href={`#/catalog-edit?id=${encodeURIComponent(p.id)}`}><span className="prod-name"><span className="product-placeholder">{ico('package')}</span><span className="prod-text"><strong>{p.name}</strong><span className="prod-sub">{formatMinor(p.price)}{p.cost!=null?' \u00b7 cost '+formatMinor(p.cost):''}</span></span></span><span className="num">{formatMinor(p.price)}</span><span className="num">{p.cost!=null?formatMinor(p.cost):'\u2014'}</span><span>{p.cost==null && <span className="pay-old">Cost not set</span>}</span></a>)}</div>;
+    return <div className="pay-table prod-table" role="table"><div className="pay-row pay-head" role="row"><span>Product</span><span className="num">Selling price</span><span className="num">Cost price</span><span /></div>{rows.map(p=><a key={p.id} className="pay-row prod-row" role="row" href={`#/product-view?id=${encodeURIComponent(p.id)}`}><span className="prod-name"><span className="product-placeholder">{ico('package')}</span><span className="prod-text"><strong>{p.name}</strong><span className="prod-sub">{formatMinor(p.price)}{p.cost!=null?' \u00b7 cost '+formatMinor(p.cost):''}</span>{state.stock[p.id] && <span className={'prod-stock '+stockLabel(state.stock[p.id]).tone}>{stockLabel(state.stock[p.id]).text}</span>}</span></span><span className="num">{formatMinor(p.price)}</span><span className="num">{p.cost!=null?formatMinor(p.cost):'\u2014'}</span><span>{p.cost==null && <span className="pay-old">Cost not set</span>}</span></a>)}</div>;
   }
   function products() {
     const q=(state.search || '').toLowerCase();
@@ -115,7 +116,24 @@ export function createViews({state,api,push,can,person,selectedItems,route,verif
   function saleDetail(id) {
     const sale=state.sales.find(s=>s.id===id);
     if(!sale)return shell('Sale',empty('Sale not found','Open Recorded sales and refresh the list.'),{back:'sales'});
-    return shell('Sale detail',<div className="stack"><section className="card pad stack-sm"><h2>Recorded sale</h2>{kv('Recorded',new Date(sale.createdAt).toLocaleString())}{kv('Total',formatMinor(sale.total))}{can('reports.view') && kv('Profit',formatMinor(sale.margin))}{kv('Difference',formatMinor(sale.variance || 0))}</section><div className="card">{(sale.items || []).map((i,index)=><div key={i.id || index} className="list-link"><div className="grow"><strong>{state.products.find(p=>p.id===i.productId)?.name || 'Product'}</strong><p>{i.qty} × {formatMinor(i.unitPrice)}</p></div><strong>{formatMinor(BigInt(i.unitPrice)*BigInt(i.qty))}</strong></div>)}</div></div>,{back:'sales',cls:'narrow'});
+    return shell('Sale detail',<div className="stack"><section className="card pad stack-sm"><h2>Recorded sale</h2>{kv('Recorded',new Date(sale.createdAt).toLocaleString())}{kv('Total',sale.total!=null?formatMinor(sale.total):'\u2014')}{can('reports.view') && kv('Profit',sale.margin!=null?formatMinor(sale.margin):'\u2014')}{kv('Difference',formatMinor(sale.variance || 0))}</section><div className="card">{(sale.items || []).map((i,index)=><div key={i.id || index} className="list-link"><div className="grow"><strong>{state.products.find(p=>p.id===i.productId)?.name || 'Product'}</strong><p>{i.qty} × {formatMinor(i.unitPrice)}</p></div><strong>{formatMinor(BigInt(i.unitPrice)*BigInt(i.qty))}</strong></div>)}</div>{can('sales.refund') && <button className="text-btn acct-logout" data-live="void-open" data-id={sale.id}>Void sale</button>}</div>,{back:'sales',cls:'narrow'});
+  }
+  function productView(id) {
+    const p=state.products.find(x=>x.id===id);
+    if(!p)return shell('Product',empty('Product not found','Go back to Products and try again.'),{back:'products',active:'products'});
+    const info=state.stock[id];const label=stockLabel(info);
+    const alert=info?.threshold>0?'At '+info.threshold+' or fewer left':info?'Off':'\u2014';
+    return shell(p.name,<div className="pv-grid"><div className="pv-photo">{ico('package')}</div><div className="stack"><section className="card pad stack-sm"><span className="eyebrow">STOCK</span><strong className="money-lg">{label?label.text:'Not available'}</strong>{can('stock.adjust') && <div className="pv-actions"><button className="secondary" data-live="stock-open" data-mode="add" data-id={id}>+ Add received</button><button className="secondary" data-live="stock-open" data-mode="correct" data-id={id} disabled={!info}>Correct count</button></div>}</section><div className="card">{kv('Selling price',formatMinor(p.price))}{can('catalog.write') && kv('Cost price',p.cost!=null?formatMinor(p.cost):'\u2014')}{kv('Low-stock alert',alert)}{p.sku && kv('SKU',p.sku)}</div></div></div>,{back:'products',active:'products',action:can('catalog.write')?<a className="primary add-product" href={`#/catalog-edit?id=${encodeURIComponent(id)}`}>Edit product</a>:null});
+  }
+  function stockDialog(mode,id) {
+    const p=state.products.find(x=>x.id===id);const info=state.stock[id];
+    const add=mode==='add';
+    return [add?'Add received stock':'Correct count',<form id="live-stock" data-mode={mode} data-id={id} noValidate>{field('qty',add?'Quantity received':'Actual count now','','text','','required inputmode="numeric" autocomplete="off"')}<p className="form-error" id="stock-error" role="alert" /></form>,[<button key="c" className="secondary" data-action="close">Cancel</button>,<button key="s" className="primary" type="submit" form="live-stock">{add?'Add to stock':'Save count'}</button>],{subtitle:(p?.name||'')+(info?' \u00b7 '+info.qty+' in stock now':'')}];
+  }
+  function voidDialog(id) {
+    const sale=state.sales.find(x=>x.id===id);
+    const lines=(sale?.items||[]).map(i=>(state.products.find(p=>p.id===i.productId)?.name||'Product')+' +'+i.qty).join(', ');
+    return ['Void this sale?',<p className="muted">Stock goes back{lines?' ('+lines+')':''} and the {sale?formatMinor(sale.total):''} payment returns to Pending payments so you can record the right products.</p>,[<button key="k" className="secondary" data-action="close">Keep sale</button>,<button key="v" className="primary danger" data-live="void-confirm" data-id={id}>Void sale</button>]];
   }
   function recordPayment() {
     if(!can('sales.allocate'))return shell('Record payment',empty('You don’t have access','Ask your business owner for permission to record sales.'));
@@ -128,6 +146,6 @@ export function createViews({state,api,push,can,person,selectedItems,route,verif
     const items=selectedItems(),total=items.reduce((sum,i)=>sum+BigInt(i.product.price)*BigInt(i.qty),0n),difference=BigInt(p.amountMinor)-total;
     return shell('What did you sell?',<div className="selection-grid"><section className="card pad stack-sm"><div className="payment-summary"><strong className="money-lg">{formatMinor(p.amountMinor)}</strong><p className="caption muted">{p.providerReference || p.reference || 'Confirmed payment'}</p></div>{state.catalogError && notice(state.catalogError,'warning')}<div className="product-picker">{state.products.filter(p=>p.active!==false).map(p=><div key={p.id} className={`pick-card ${state.quantities[p.id]?'selected':''}`}><div className="grow"><h3>{p.name}</h3><span className="caption">{formatMinor(p.price)}</span></div><div className="quantity">{state.quantities[p.id]>0 && <><button data-live="live-quantity" data-id={p.id} data-delta="-1" aria-label={`Remove one ${p.name}`} disabled={state.allocating}>−</button><strong>{state.quantities[p.id]}</strong></>}<button className={state.quantities[p.id]?'':'quantity-add'} data-live="live-quantity" data-id={p.id} data-delta="1" aria-label={`Add one ${p.name}`} disabled={state.allocating}>{state.quantities[p.id]?'+':'+ Add'}</button></div></div>)}</div></section><section className="card pad stack-sm"><h2>Review sale</h2>{kv('Products total',formatMinor(total))}{kv('Paid',formatMinor(p.amountMinor))}{difference!==0n?notice('Difference: '+formatMinor(difference)+'. Discounts and tips are allowed. The server records and flags the variance.','warning'):notice('Matches the payment.')}<p className="form-error" id="allocate-error" role="alert"/><button className="primary" data-live="allocate" disabled={!items.length || state.allocating}>{state.allocating?'Confirming…':'Confirm sale'}</button><p className="small muted">The server updates stock when the sale is confirmed. Negative stock is allowed and flagged.</p></section></div>,{back:'sales'});
   }
-  return {moreScreen,notificationSettings,shell,auth,home,products,importScreen,editor,onboarding,managedForm,direct,changePassword,
+  return {productView,stockDialog,voidDialog,moreScreen,notificationSettings,shell,auth,home,products,importScreen,editor,onboarding,managedForm,direct,changePassword,
     checkEmail:()=><CheckEmail api={api}/>,verifyPending:()=><VerifyPending api={api}/>,verifyEmailScreen:(params=new URLSearchParams(location.hash.split('?')[1]))=><VerifyResult token={params.get('token')} verify={verify} api={api}/>,account,admin,salesScreen,saleDetail,recordPayment,matchScreen};
 }

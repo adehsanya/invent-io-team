@@ -3,6 +3,7 @@ import { rememberEmail } from "./authScreens.jsx";
 import { createApi } from "../public/api.js";
 import { createPush } from "../public/notifications.js";
 import { prepareImport, MAX_CSV_BYTES } from "../public/csv-import.js";
+import { stockByProduct, restockBody, correctionBody, voidBody, wholeNumber } from "./stockAdapter.js";
 import { formatMinor, nairaToMinor, safeMinorNumber } from "../public/money.js";
 
 export function createMerchantController({ ui, rerender }) {
@@ -23,6 +24,7 @@ export function createMerchantController({ ui, rerender }) {
   const $ = (s, r = document) => r.querySelector(s);
   const state = {
     search: "",
+    stock: {},
     productFilter: "all",
     formNonce: 0,
     salesTab: "pending",
@@ -107,11 +109,22 @@ export function createMerchantController({ ui, rerender }) {
     });
   }
   const {shell, auth, checkEmail, verifyPending, home, products, importScreen, editor, onboarding, managedForm,
-    direct, changePassword, verifyEmailScreen, account, notificationSettings, moreScreen, admin, salesScreen, saleDetail,
+    direct, changePassword, verifyEmailScreen, account, notificationSettings, moreScreen, productView, stockDialog, voidDialog, admin, salesScreen, saleDetail,
     recordPayment, matchScreen} = createViews({state, api, push, can, person, ui,
       selectedItems, route: () => lastRoute, verify: async token => {
         await api.request("/auth/verify-email", {method:"POST",body:{token},auth:false});
       }});
+  async function loadStock() {
+    const branchId = state.tenant?.branchId;
+    if (!branchId || !can("stock.read")) return;
+    try {
+      state.stock = stockByProduct(
+        await api.request("/branches/" + encodeURIComponent(branchId) + "/stock"),
+      );
+    } catch {
+      state.stock = {};
+    }
+  }
   async function initialize() {
     if (!api.session || state.loading) return;
     const turn = ++generation;
@@ -126,7 +139,7 @@ export function createMerchantController({ ui, rerender }) {
       state.tenant = tenant;
       if (tenant.profile) state.profile = tenant.profile;
       state.initialized = true;
-      await Promise.all([loadProducts(), loadManaged(), loadCore()]);
+      await Promise.all([loadProducts(), loadManaged(), loadCore(), loadStock()]);
       if (turn !== generation) return;
       prepareNotifications();
     } catch (error) {
@@ -206,7 +219,7 @@ export function createMerchantController({ ui, rerender }) {
     lastRoute = route;
     if (!api.session || ["welcome","login","create","forgot","reset","check","verify-email","verify-pending"].includes(route)) return;
     if (!state.initialized && !state.loading && !state.error) { void initialize(); return; }
-    if (previousRoute !== route && state.initialized && ["home","sales"].includes(route)) {
+    if (previousRoute !== route && state.initialized && ["home","sales","sale-detail"].includes(route)) {
       void loadCore().then(rerender);
     }
   }
@@ -247,6 +260,7 @@ export function createMerchantController({ ui, rerender }) {
       settings: account,
       more: moreScreen,
       "notification-settings": notificationSettings,
+      "product-view": () => productView(params.get("id")),
       "product-new": () => editor(),
       "product-edit": () => editor(params.get("id")),
       product: () => editor(params.get("id")),
@@ -463,6 +477,27 @@ export function createMerchantController({ ui, rerender }) {
         state[b.dataset.key] = b.dataset.value;
         rerender();
         return;
+      }
+      if (action === "stock-open") {
+        modal(...stockDialog(b.dataset.mode, b.dataset.id));
+        return;
+      }
+      if (action === "void-open") {
+        modal(...voidDialog(b.dataset.id));
+        return;
+      }
+      if (action === "void-confirm") {
+        if (!can("sales.refund"))
+          throw new Error("You don’t have permission to void sales.");
+        b.disabled = true;
+        await api.request("/sales/" + encodeURIComponent(b.dataset.id) + "/refund", {
+          method: "POST",
+          body: voidBody(),
+        });
+        closeModal();
+        await Promise.all([loadCore(), loadStock()]);
+        toast("Sale voided. The payment is back in Pending payments.");
+        return go("sales");
       }
       if (action === "begin-match") {
         state.paymentId = b.dataset.id;
@@ -700,6 +735,34 @@ export function createMerchantController({ ui, rerender }) {
         await push.disable().catch(() => {});
         api.clear(); generation++; clearData(); state.profile = null;
         go("login", true); toast("Password updated. Log in with your new password.");
+        return;
+      }
+      if (form.id === "live-stock") {
+        if (!can("stock.adjust"))
+          throw new Error("You don’t have permission to change stock.");
+        const productId = form.dataset.id;
+        const branchId = state.tenant?.branchId;
+        const qty = wholeNumber(data.qty);
+        const errorLine = document.getElementById("stock-error");
+        if (qty == null || (form.dataset.mode === "add" && qty < 1)) {
+          if (errorLine) errorLine.textContent = "Enter a whole number" + (form.dataset.mode === "add" ? " above 0." : ".");
+          return;
+        }
+        if (!branchId) throw new Error("Your branch could not be found. Log in again.");
+        const current = state.stock[productId]?.qty;
+        if (form.dataset.mode === "correct" && current == null)
+          throw new Error("Current stock isn’t available yet.");
+        await api.request("/stock/adjustments", {
+          method: "POST",
+          body:
+            form.dataset.mode === "add"
+              ? restockBody({ branchId, productId, qty })
+              : correctionBody({ branchId, productId, current, target: qty }),
+        });
+        closeModal();
+        await loadStock();
+        rerender();
+        toast(form.dataset.mode === "add" ? "Stock added" : "Count saved");
         return;
       }
       if (form.id === "live-product") {

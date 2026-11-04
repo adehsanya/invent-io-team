@@ -287,3 +287,20 @@ test('email lifecycle links preserve tokens and route into the frontend without 
     }
   } finally {await new Promise(r=>server.close(r));}
 });
+
+import { stockByProduct, restockBody, correctionBody, voidBody, wholeNumber, stockLabel } from "../src/stockAdapter.js";
+test("stock adapter reads tolerant shapes and builds spec-shaped bodies", () => {
+  const map = stockByProduct({ items: [{ productId: "a", quantity: "17", lowStockThreshold: 5 }, { product: { id: "b" }, qty: 0 }, { productId: "c" }] });
+  assert.deepEqual(map, { a: { qty: 17, threshold: 5 }, b: { qty: 0, threshold: null } });
+  assert.deepEqual(restockBody({ branchId: "br", productId: "a", qty: 24 }), { branchId: "br", productId: "a", type: "RESTOCK", qtyDelta: 24, reason: "Received stock" });
+  assert.equal(correctionBody({ branchId: "br", productId: "a", current: 17, target: 12 }).qtyDelta, -5);
+  assert.deepEqual(voidBody(""), {});
+  assert.deepEqual(voidBody("Wrong items"), { reason: "Wrong items" });
+  assert.equal(wholeNumber("24"), 24);
+  assert.equal(wholeNumber("2.5"), null);
+  assert.equal(wholeNumber(""), null);
+  assert.equal(stockLabel({ qty: 2, threshold: 5 }).text, "Low · 2 left");
+  assert.equal(stockLabel({ qty: 0 }).tone, "bad");
+  assert.equal(stockLabel({ qty: -1 }).tone, "warn");
+  assert.equal(stockLabel({ qty: 17, threshold: 5 }).text, "17 in stock");
+});

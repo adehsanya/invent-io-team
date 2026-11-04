@@ -3263,3 +3263,14 @@ body:has(.back-office) .demo-banner + .back-office .admin-sidebar { top:30px; he
   .acct-notif { display: none !important; }
   .sales-table .pay-row > :nth-child(4) { display: none; }
 }
+
+/* Product detail (Figma W-PR-02) */
+.pv-grid { display: grid; grid-template-columns: 400px 1fr; gap: 24px; align-items: start; }
+.pv-photo { aspect-ratio: 1; border-radius: 16px; background: #ececea; display: flex; align-items: center; justify-content: center; }
+.pv-photo .icon { transform: scale(2.5); opacity: .5; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--muted); }
+.pv-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.prod-stock { font-size: 14px; line-height: 20px; color: var(--muted); }
+.prod-stock.warn { color: #92400e; }
+.prod-stock.bad { color: #b91c1c; }
+@media (max-width: 767px) { .pv-grid { grid-template-columns: 1fr; } }
